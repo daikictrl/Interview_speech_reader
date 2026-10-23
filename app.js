@@ -98,6 +98,9 @@ const state = {
   voiceFollowActive: false,
   isSpeechRecognizing: false,
   speechRecognition: null,
+  srRestartTimer: null,
+  lastScrollTime: 0,
+  lastScrollTarget: -1,
   whisperCaptureActive: false,
   mediaRecorder: null,
   scriptWords: [],
@@ -553,7 +556,7 @@ let idleWavePhase = 0;
 async function initAudioTrack() {
   if (state.audioContext && state.audioStream) {
     if (state.audioContext.state === "suspended") {
-      await state.audioContext.resume();
+      try { await state.audioContext.resume(); } catch (e) {}
     }
     state.micActive = true;
     updateSoundtrackUI(true);
@@ -561,26 +564,34 @@ async function initAudioTrack() {
   }
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: false, // Don't clip low-amplitude voice
-        autoGainControl: true
-      }
-    });
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+    } catch (e1) {
+      // Mobile fallback: simple audio constraint if device rejects custom options
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     state.audioStream = stream;
 
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    state.audioContext = new AudioContextClass();
-    if (state.audioContext.state === "suspended") {
-      await state.audioContext.resume();
-    }
+    if (AudioContextClass) {
+      state.audioContext = new AudioContextClass();
+      if (state.audioContext.state === "suspended") {
+        try { await state.audioContext.resume(); } catch (e) {}
+      }
 
-    const source = state.audioContext.createMediaStreamSource(stream);
-    state.audioAnalyser = state.audioContext.createAnalyser();
-    state.audioAnalyser.fftSize = 256;
-    state.audioAnalyser.smoothingTimeConstant = 0.5;
-    source.connect(state.audioAnalyser);
+      const source = state.audioContext.createMediaStreamSource(stream);
+      state.audioAnalyser = state.audioContext.createAnalyser();
+      state.audioAnalyser.fftSize = 256;
+      state.audioAnalyser.smoothingTimeConstant = 0.5;
+      source.connect(state.audioAnalyser);
+    }
 
     state.micActive = true;
     updateSoundtrackUI(true);
@@ -589,20 +600,17 @@ async function initAudioTrack() {
     startSoundTrackCanvas();
     return true;
   } catch (err) {
-    console.warn("Microphone access notice:", err);
+    console.warn("Microphone visualizer notice:", err);
     state.micActive = false;
     updateSoundtrackUI(false);
 
-    let explanation = "Microphone hardware access was denied by Windows or browser permissions.";
-    if (err.name === "NotAllowedError" || (err.message && err.message.includes("Permission denied by system"))) {
-      explanation = "Windows System Privacy is set to <strong>Deny</strong>. Even though your browser allowed it, Windows blocked desktop apps from accessing the physical mic.";
-    } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-      explanation = "No physical microphone device was detected on your PC.";
-    } else if (err.name === "NotReadableError") {
-      explanation = "Another app (Zoom, Teams, or another tab) is currently using your microphone exclusively.";
-    }
-
-    if (state.voiceFollowActive) {
+    // Only show mic modal if native speech recognition is ALSO unavailable
+    const hasWebSpeech = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (state.voiceFollowActive && !hasWebSpeech) {
+      let explanation = "Microphone hardware access was denied or not detected.";
+      if (err.name === "NotAllowedError") {
+        explanation = "Microphone permission was denied. Please allow microphone access in your browser or phone settings.";
+      }
       openMicModal(explanation);
     }
     return false;
@@ -817,7 +825,7 @@ function startSimulatedVoiceDemo() {
 }
 
 // ================= REAL-TIME VOICE FOLLOW ENGINE =================
-// ================= REAL-TIME VOICE FOLLOW ENGINE =================
+// ================= REAL-TIME VOICE FOLLOW ENGINE (MOBILE-FIRST) =================
 async function toggleVoiceFollow() {
   state.voiceFollowActive = !state.voiceFollowActive;
 
@@ -829,22 +837,7 @@ async function toggleVoiceFollow() {
   }
 
   if (state.voiceFollowActive) {
-    // 1. Activate Live Audio Track Waveform FIRST (captures mic in Brave, Chrome, Edge)
-    const micReady = await initAudioTrack();
-    if (!micReady) {
-      state.voiceFollowActive = false;
-      if (elements.btnVoiceFollow) elements.btnVoiceFollow.classList.remove("active");
-      if (elements.voiceHud) elements.voiceHud.classList.remove("active");
-      return;
-    }
-
-    // 2. Start Groq Whisper continuous audio transcription (works in Brave and all browsers)
-    startWhisperCapture();
-
-    // 3. Also initialize native Web Speech recognition if supported
-    startSpeechRecognition();
-
-    // 4. Start Prompter Playback & Stopwatch
+    // 1. Start prompter timer and active playback state
     state.isPlaying = true;
     if (elements.btnPlayPause) elements.btnPlayPause.classList.add("playing");
     if (elements.playIcon) elements.playIcon.classList.add("hidden");
@@ -852,19 +845,37 @@ async function toggleVoiceFollow() {
     startElapsedTimer();
 
     if (elements.voiceHudText) {
-      elements.voiceHudText.textContent = "Listening... Start speaking aloud.";
+      elements.voiceHudText.textContent = "Listening... Speak aloud at your own pace.";
     }
+
+    // 2. Primary Engine: Native Speech Recognition (Instant, zero-latency on mobile phones)
+    const hasWebSpeech = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (hasWebSpeech) {
+      startSpeechRecognition();
+    } else {
+      // Fallback for browsers without Web Speech (like Brave without Google services)
+      startWhisperCapture();
+    }
+
+    // 3. Audio visualizer in background (does not block speech recognition on mobile)
+    initAudioTrack().catch(err => console.log("Audio visualizer notice:", err));
   } else {
     stopWhisperCapture();
     stopSpeechRecognition();
     stopAudioTrack();
     pausePrompter();
     clearWordHighlights();
+    if (elements.voiceHudText) {
+      elements.voiceHudText.textContent = "Voice Follow Paused";
+    }
   }
 }
 
-// ================= CONTINUOUS GROQ WHISPER CAPTURE (UNIVERSAL BROWSER SUPPORT) =================
+// ================= CONTINUOUS GROQ WHISPER CAPTURE (FALLBACK ENGINE) =================
 function startWhisperCapture() {
+  // Do NOT capture with MediaRecorder if native speech recognition is active,
+  // because MediaRecorder can monopolize the hardware mic on mobile devices
+  if (state.isSpeechRecognizing) return;
   if (!state.audioStream || !state.voiceFollowActive) return;
 
   try {
@@ -872,9 +883,14 @@ function startWhisperCapture() {
     let chunks = [];
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
-      : "audio/webm";
+      : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
 
-    const recorder = new MediaRecorder(state.audioStream, { mimeType });
+    const options = mimeType ? { mimeType } : {};
+    const recorder = new MediaRecorder(state.audioStream, options);
     state.mediaRecorder = recorder;
 
     recorder.ondataavailable = (e) => {
@@ -885,23 +901,23 @@ function startWhisperCapture() {
 
     recorder.onstop = async () => {
       if (chunks.length && state.voiceFollowActive) {
-        const audioBlob = new Blob(chunks, { type: mimeType });
+        const audioBlob = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
         chunks = [];
         sendAudioToGroq(audioBlob);
       }
 
-      if (state.voiceFollowActive && state.whisperCaptureActive) {
+      if (state.voiceFollowActive && state.whisperCaptureActive && !state.isSpeechRecognizing) {
         setTimeout(() => {
-          if (state.voiceFollowActive && state.whisperCaptureActive) {
+          if (state.voiceFollowActive && state.whisperCaptureActive && !state.isSpeechRecognizing) {
             startWhisperCapture();
           }
-        }, 30);
+        }, 60);
       }
     };
 
     recorder.start();
 
-    // Slices of 1.6s for fast, responsive teleprompter updates
+    // Slices of 1.6s for fast teleprompter updates
     setTimeout(() => {
       if (recorder.state === "recording") {
         recorder.stop();
@@ -919,7 +935,7 @@ async function sendAudioToGroq(blob) {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: {
-        "Content-Type": "audio/webm"
+        "Content-Type": blob.type || "audio/webm"
       },
       body: blob
     });
@@ -942,18 +958,29 @@ function stopWhisperCapture() {
   state.mediaRecorder = null;
 }
 
-// ================= WEB SPEECH API ENGINE =================
+// ================= WEB SPEECH API ENGINE (HIGH ACCURACY MOBILE ENGINE) =================
 function startSpeechRecognition() {
   if (state.isSpeechRecognizing) return;
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    console.log("Web Speech API not present; relying on Groq Whisper engine.");
+    console.log("Web Speech API not present; falling back to Groq Whisper.");
+    if (state.voiceFollowActive && !state.whisperCaptureActive) {
+      startWhisperCapture();
+    }
     return;
   }
 
+  // Cleanly abort previous instance if any
   if (state.speechRecognition) {
-    try { state.speechRecognition.abort(); } catch (e) {}
+    try {
+      state.speechRecognition.onstart = null;
+      state.speechRecognition.onresult = null;
+      state.speechRecognition.onerror = null;
+      state.speechRecognition.onend = null;
+      state.speechRecognition.abort();
+    } catch (e) {}
+    state.speechRecognition = null;
   }
 
   try {
@@ -961,109 +988,164 @@ function startSpeechRecognition() {
     sr.continuous = true;
     sr.interimResults = true;
     sr.lang = navigator.language || "en-US";
-    sr.maxAlternatives = 1;
+    sr.maxAlternatives = 3;
 
     sr.onstart = () => {
       state.isSpeechRecognizing = true;
+      if (elements.voiceHud) elements.voiceHud.classList.add("listening");
+      if (elements.voiceHudText && elements.voiceHudText.textContent.includes("Listening")) {
+        elements.voiceHudText.textContent = "Listening... Speak aloud at your own pace.";
+      }
     };
 
     sr.onresult = (event) => {
       let transcriptChunk = "";
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const piece = event.results[i][0].transcript;
-        if (piece) {
-          transcriptChunk += " " + piece;
+        const res = event.results[i];
+        if (res && res[0] && res[0].transcript) {
+          transcriptChunk += " " + res[0].transcript;
         }
       }
-      if (transcriptChunk.trim()) {
-        matchSpokenWords(transcriptChunk.trim());
+      const trimmed = transcriptChunk.trim();
+      if (trimmed) {
+        matchSpokenWords(trimmed);
       }
     };
 
     sr.onerror = (err) => {
-      if (err.error === "no-speech") return;
-      // In Brave Browser or when Google services are disabled, Web Speech emits audio-capture/not-allowed.
-      // Log info and let Groq Whisper handle transcription smoothly without interrupting the user.
-      console.log(`Native speech recognition notice (${err.error}); Groq Whisper is active.`);
+      if (err.error === "no-speech" || err.error === "aborted") return;
+      console.log(`Speech recognition status: ${err.error}`);
+
+      // If native recognition is blocked by browser or network, fallback gracefully to Groq Whisper
+      if ((err.error === "network" || err.error === "not-allowed" || err.error === "service-not-allowed") && state.voiceFollowActive) {
+        if (!state.whisperCaptureActive) {
+          startWhisperCapture();
+        }
+      }
     };
 
     sr.onend = () => {
       state.isSpeechRecognizing = false;
+      // CRITICAL FOR MOBILE: Mobile browsers (Chrome Android & iOS Safari) terminate recognition on silence.
+      // Re-instantiate a fresh instance immediately so speech recognition never dies mid-speech.
       if (state.voiceFollowActive && !state.simulatedVoiceActive) {
-        setTimeout(() => {
+        if (state.srRestartTimer) clearTimeout(state.srRestartTimer);
+        state.srRestartTimer = setTimeout(() => {
           if (state.voiceFollowActive && !state.isSpeechRecognizing && !state.simulatedVoiceActive) {
-            try { sr.start(); } catch (e) {}
+            startSpeechRecognition();
           }
-        }, 1000);
+        }, 120);
       }
     };
 
     sr.start();
     state.speechRecognition = sr;
   } catch (err) {
-    console.log("Speech recognition start notice; Groq Whisper active.", err);
+    console.warn("Speech recognition notice; fallback to Whisper:", err);
+    if (state.voiceFollowActive && !state.whisperCaptureActive) {
+      startWhisperCapture();
+    }
   }
 }
 
 function stopSpeechRecognition() {
   state.isSpeechRecognizing = false;
+  if (state.srRestartTimer) {
+    clearTimeout(state.srRestartTimer);
+    state.srRestartTimer = null;
+  }
   if (state.speechRecognition) {
-    try { state.speechRecognition.abort(); } catch (e) {}
+    try {
+      state.speechRecognition.onstart = null;
+      state.speechRecognition.onresult = null;
+      state.speechRecognition.onerror = null;
+      state.speechRecognition.onend = null;
+      state.speechRecognition.abort();
+    } catch (e) {}
     state.speechRecognition = null;
+  }
+  if (elements.voiceHud) {
+    elements.voiceHud.classList.remove("listening");
   }
 }
 
 /**
- * Robust sentence and word matcher that glides the teleprompter directly to the spoken line
+ * High-precision Bigram + Unigram word matcher that glides the teleprompter directly to the spoken line
  */
 function matchSpokenWords(rawTranscript) {
   if (!state.scriptWords.length) return;
 
   const spokenTokens = rawTranscript
     .toLowerCase()
-    .replace(/[^\w\s]/g, "")
+    .replace(/[^\w\s']/g, "")
+    .replace(/['’]/g, "")
     .split(/\s+/)
     .filter(Boolean);
 
   if (!spokenTokens.length) return;
 
   if (elements.voiceHudText) {
-    elements.voiceHudText.textContent = `Hearing: "${rawTranscript.slice(-36)}"`;
+    elements.voiceHudText.textContent = `Hearing: "${rawTranscript.slice(-32).trim()}"`;
+  }
+  if (elements.voiceHud) {
+    elements.voiceHud.classList.add("listening");
   }
 
-  // Look ahead up to 65 words from current position, and back 3 words
-  const scanStart = Math.max(0, state.currentWordIndex - 3);
-  const scanEnd = Math.min(state.scriptWords.length, state.currentWordIndex + 65);
+  const scriptLen = state.scriptWords.length;
+  const scanStart = Math.max(0, state.currentWordIndex - 2);
+  const scanEnd = Math.min(scriptLen, state.currentWordIndex + 80);
 
   let bestMatchIdx = -1;
 
-  // Search forward through script from current word position
-  for (let s = spokenTokens.length - 1; s >= 0; s--) {
-    const sWord = spokenTokens[s];
-    if (sWord.length < 2) continue;
+  // 1. Bigram Matching (2 consecutive spoken words) for near 100% accuracy
+  if (spokenTokens.length >= 2) {
+    for (let s = spokenTokens.length - 1; s >= 1; s--) {
+      const w1 = spokenTokens[s - 1];
+      const w2 = spokenTokens[s];
+      if (w1.length < 2 || w2.length < 2) continue;
 
-    for (let i = state.currentWordIndex; i < scanEnd; i++) {
-      const scriptItem = state.scriptWords[i];
-      if (!scriptItem) continue;
-
-      if (
-        scriptItem.norm === sWord ||
-        (sWord.length >= 3 && scriptItem.norm.startsWith(sWord)) ||
-        (scriptItem.norm.length >= 3 && sWord.startsWith(scriptItem.norm)) ||
-        (sWord.length >= 4 && scriptItem.norm.includes(sWord))
-      ) {
-        bestMatchIdx = i;
-        break;
+      for (let i = state.currentWordIndex; i < scanEnd - 1; i++) {
+        const item1 = state.scriptWords[i];
+        const item2 = state.scriptWords[i + 1];
+        if (item1 && item2 && item1.norm === w1 && item2.norm === w2) {
+          bestMatchIdx = i + 1;
+          break;
+        }
       }
+      if (bestMatchIdx !== -1) break;
     }
-    if (bestMatchIdx !== -1) break;
   }
 
-  // Fallback: if no match found ahead, check near scanStart in case speaker repeated words
+  // 2. Unigram Matching (Single word forward search)
   if (bestMatchIdx === -1) {
     for (let s = spokenTokens.length - 1; s >= 0; s--) {
       const sWord = spokenTokens[s];
+      if (sWord.length < 2) continue;
+
+      for (let i = state.currentWordIndex; i < scanEnd; i++) {
+        const scriptItem = state.scriptWords[i];
+        if (!scriptItem) continue;
+
+        if (
+          scriptItem.norm === sWord ||
+          (sWord.length >= 3 && scriptItem.norm.startsWith(sWord)) ||
+          (scriptItem.norm.length >= 3 && sWord.startsWith(scriptItem.norm)) ||
+          (sWord.length >= 4 && scriptItem.norm.includes(sWord))
+        ) {
+          bestMatchIdx = i;
+          break;
+        }
+      }
+      if (bestMatchIdx !== -1) break;
+    }
+  }
+
+  // 3. Fallback: Check slightly behind in case speaker repeated words
+  if (bestMatchIdx === -1 && scanStart < state.currentWordIndex) {
+    for (let s = spokenTokens.length - 1; s >= 0; s--) {
+      const sWord = spokenTokens[s];
       if (sWord.length < 3) continue;
+
       for (let i = scanStart; i < state.currentWordIndex; i++) {
         const scriptItem = state.scriptWords[i];
         if (scriptItem && scriptItem.norm === sWord) {
@@ -1085,19 +1167,8 @@ function scrollPrompterToWord(wordIdx) {
   const wordEl = document.getElementById(`pw-${wordIdx}`);
   if (!wordEl || !elements.prompterViewport) return;
 
+  // Immediate visual highlight (0ms latency for mobile responsiveness)
   highlightWord(wordIdx);
-
-  // Exact vertical alignment with reading guide beam:
-  const currentScroll = elements.prompterViewport.scrollTop;
-  const wordViewportOffset = wordEl.getBoundingClientRect().top - elements.prompterViewport.getBoundingClientRect().top;
-  const guideOffset = elements.prompterViewport.clientHeight * (state.guidePosPct / 100);
-  const targetScroll = currentScroll + (wordViewportOffset - guideOffset);
-
-  elements.prompterViewport.scrollTo({
-    top: Math.max(0, targetScroll),
-    behavior: "smooth"
-  });
-
   updateProgressBar();
 
   if (wordIdx >= state.scriptWords.length - 2) {
@@ -1105,6 +1176,33 @@ function scrollPrompterToWord(wordIdx) {
       elements.voiceHudText.textContent = "Script complete! Flawless delivery.";
     }
   }
+
+  // Exact vertical alignment using static offsetTop (avoids mid-scroll animation jitter)
+  const guideOffset = elements.prompterViewport.clientHeight * (state.guidePosPct / 100);
+  const targetScroll = Math.max(0, wordEl.offsetTop - guideOffset + (wordEl.clientHeight / 2));
+
+  const now = performance.now();
+  const currentScroll = elements.prompterViewport.scrollTop;
+  const diff = Math.abs(targetScroll - currentScroll);
+
+  // If already close to line (< 6px), avoid unnecessary re-animation
+  if (diff < 6) return;
+
+  // Throttle scrolling on mobile to maintain 60fps compositor performance
+  const isMobile = window.innerWidth <= 768;
+  const throttleMs = isMobile ? 120 : 80;
+
+  if (now - state.lastScrollTime < throttleMs && diff < 35) {
+    return;
+  }
+
+  state.lastScrollTime = now;
+  state.lastScrollTarget = targetScroll;
+
+  elements.prompterViewport.scrollTo({
+    top: targetScroll,
+    behavior: "smooth"
+  });
 }
 
 function highlightWord(currentIdx) {

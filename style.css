@@ -490,8 +490,25 @@ body.fullscreen-mode .workspace-container {
   display: flex;
 }
 
+.voice-hud.listening {
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
+}
+
+.voice-hud.listening .hud-mic-icon {
+  animation: pulseVoiceMic 1.4s infinite ease-in-out;
+  color: #10b981;
+}
+
+@keyframes pulseVoiceMic {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.22); opacity: 1; }
+}
+
 .hud-mic-icon {
   font-size: 0.9rem;
+  display: inline-block;
+  transition: transform 0.2s ease;
 }
 
 .hud-text {
