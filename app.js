@@ -85,6 +85,7 @@ const state = {
   guidePosPct: 30,
   showGuide: true,
   currentTheme: "theme-oled",
+  textColor: localStorage.getItem("promptflow_text_color") || "#ffffff",
   
   // Timer & Progress
   elapsedSeconds: 0,
@@ -117,6 +118,7 @@ const state = {
   webcamActive: false,
   webcamStream: null,
   webcamMirrored: true,
+  webcamMode: window.innerWidth <= 768 ? "background" : "pip",
 
   // Video Recording
   videoRecorder: null,
@@ -205,12 +207,27 @@ function initElements() {
     themeSelect: document.getElementById("themeSelect"),
     btnFullscreen: document.getElementById("btnFullscreen"),
 
+    // Text Color Controls
+    btnTextColorMenu: document.getElementById("btnTextColorMenu"),
+    textColorControlWrap: document.getElementById("textColorControlWrap"),
+    textColorDot: document.getElementById("textColorDot"),
+    colorDropdownMenu: document.getElementById("colorDropdownMenu"),
+    inputCustomColor: document.getElementById("inputCustomColor"),
+    inputCustomColorMobile: document.getElementById("inputCustomColorMobile"),
+    mobileColorSwatches: document.getElementById("mobileColorSwatches"),
+
     // Webcam
     webcamContainer: document.getElementById("webcamContainer"),
+    webcamBackdrop: document.getElementById("webcamBackdrop"),
+    webcamVideoWrap: document.getElementById("webcamVideoWrap"),
     webcamHeader: document.getElementById("webcamHeader"),
     webcamVideo: document.getElementById("webcamVideo"),
     btnWebcamFlip: document.getElementById("btnWebcamFlip"),
     btnWebcamClose: document.getElementById("btnWebcamClose"),
+    btnWebcamMode: document.getElementById("btnWebcamMode"),
+    webcamModeIcon: document.getElementById("webcamModeIcon"),
+    webcamModeText: document.getElementById("webcamModeText"),
+    webcamScrim: document.getElementById("webcamScrim"),
     webcamOpacity: document.getElementById("webcamOpacity"),
     btnWebcamRecord: document.getElementById("btnWebcamRecord"),
     recIndicator: document.getElementById("recIndicator"),
@@ -287,6 +304,15 @@ function loadSavedPreferences() {
     state.currentTheme = localStorage.getItem("promptflow_theme");
     document.body.className = state.currentTheme;
     if (elements.themeSelect) elements.themeSelect.value = state.currentTheme;
+  }
+
+  // Restore script text color
+  const savedColor = localStorage.getItem("promptflow_text_color") || "#ffffff";
+  setScriptTextColor(savedColor);
+
+  // Initialize webcam mode based on viewport
+  if (window.innerWidth <= 768) {
+    state.webcamMode = "background";
   }
 
   if (elements.speedVal) elements.speedVal.textContent = state.speedWpm;
@@ -1100,7 +1126,78 @@ function clearWordHighlights() {
   });
 }
 
-// ================= WEBCAM EYE-CONTACT PIP =================
+// ================= WEBCAM EYE-CONTACT & BACKGROUND RECORDING =================
+function setWebcamMode(mode) {
+  state.webcamMode = mode;
+  if (!elements.webcamContainer) return;
+
+  if (mode === "background") {
+    // Relocate video element to the background backdrop (behind text at z-index 1)
+    if (elements.webcamBackdrop && elements.webcamVideo) {
+      elements.webcamBackdrop.appendChild(elements.webcamVideo);
+      elements.webcamBackdrop.classList.add("active");
+    }
+    elements.webcamContainer.classList.add("bg-mode");
+    document.body.classList.add("webcam-bg-active");
+    elements.webcamContainer.style.left = "";
+    elements.webcamContainer.style.top = "";
+    elements.webcamContainer.style.right = "";
+    if (elements.webcamModeIcon) elements.webcamModeIcon.textContent = "🔲";
+    if (elements.webcamModeText) elements.webcamModeText.textContent = "PiP";
+    if (elements.btnWebcamMode) elements.btnWebcamMode.title = "Switch to Floating Window";
+  } else {
+    // Relocate video element back to the PiP window wrap
+    if (elements.webcamVideoWrap && elements.webcamVideo) {
+      elements.webcamVideoWrap.appendChild(elements.webcamVideo);
+    }
+    if (elements.webcamBackdrop) {
+      elements.webcamBackdrop.classList.remove("active");
+    }
+    elements.webcamContainer.classList.remove("bg-mode");
+    document.body.classList.remove("webcam-bg-active");
+    if (elements.webcamModeIcon) elements.webcamModeIcon.textContent = "⛶";
+    if (elements.webcamModeText) elements.webcamModeText.textContent = "Full BG";
+    if (elements.btnWebcamMode) elements.btnWebcamMode.title = "Switch to Background Camera";
+  }
+}
+
+function toggleWebcamMode() {
+  const newMode = state.webcamMode === "background" ? "pip" : "background";
+  setWebcamMode(newMode);
+}
+
+// ================= SCRIPT TEXT COLOR =================
+function setScriptTextColor(color) {
+  if (!color) return;
+  state.textColor = color;
+  document.documentElement.style.setProperty("--text-prompter", color);
+  if (elements.prompterTextDisplay) {
+    elements.prompterTextDisplay.style.color = color;
+  }
+  if (elements.textColorDot) {
+    elements.textColorDot.style.backgroundColor = color;
+  }
+  document.querySelectorAll(".swatch-btn").forEach(btn => {
+    btn.classList.toggle("active", (btn.dataset.color || "").toLowerCase() === color.toLowerCase());
+  });
+  if (elements.inputCustomColor) elements.inputCustomColor.value = color;
+  if (elements.inputCustomColorMobile) elements.inputCustomColorMobile.value = color;
+  localStorage.setItem("promptflow_text_color", color);
+}
+
+function toggleColorDropdown(e) {
+  if (e) e.stopPropagation();
+  if (elements.colorDropdownMenu) {
+    elements.colorDropdownMenu.classList.toggle("hidden");
+  }
+}
+
+function closeColorDropdown() {
+  if (elements.colorDropdownMenu) {
+    elements.colorDropdownMenu.classList.add("hidden");
+  }
+}
+
 async function toggleWebcam() {
   if (state.webcamActive) {
     closeWebcam();
@@ -1115,6 +1212,13 @@ async function toggleWebcam() {
       state.webcamActive = true;
       elements.webcamContainer.classList.add("active");
       elements.btnWebcam.classList.add("active");
+
+      // Default to background mode on mobile view
+      if (window.innerWidth <= 768) {
+        setWebcamMode("background");
+      } else {
+        setWebcamMode(state.webcamMode);
+      }
     } catch (err) {
       // Retry without audio if audio fails
       try {
@@ -1127,6 +1231,12 @@ async function toggleWebcam() {
         state.webcamActive = true;
         elements.webcamContainer.classList.add("active");
         elements.btnWebcam.classList.add("active");
+
+        if (window.innerWidth <= 768) {
+          setWebcamMode("background");
+        } else {
+          setWebcamMode(state.webcamMode);
+        }
       } catch (err2) {
         alert("Unable to access camera. Please allow webcam permissions in your browser.");
         console.error(err2);
@@ -1143,7 +1253,17 @@ function closeWebcam() {
   }
   if (elements.webcamVideo) elements.webcamVideo.srcObject = null;
   state.webcamActive = false;
-  if (elements.webcamContainer) elements.webcamContainer.classList.remove("active");
+  if (elements.webcamContainer) {
+    elements.webcamContainer.classList.remove("active");
+    elements.webcamContainer.classList.remove("bg-mode");
+  }
+  if (elements.webcamBackdrop) {
+    elements.webcamBackdrop.classList.remove("active");
+  }
+  if (elements.webcamVideoWrap && elements.webcamVideo) {
+    elements.webcamVideoWrap.appendChild(elements.webcamVideo);
+  }
+  document.body.classList.remove("webcam-bg-active");
   if (elements.btnWebcam) elements.btnWebcam.classList.remove("active");
 }
 
@@ -1524,10 +1644,48 @@ function setupEventListeners() {
   // Voice Follow & Webcam
   elements.btnVoiceFollow.addEventListener("click", () => { toggleVoiceFollow(); closeMobileDrawer(); });
   elements.btnWebcam.addEventListener("click", () => { toggleWebcam(); closeMobileDrawer(); });
+  if (elements.btnWebcamMode) {
+    elements.btnWebcamMode.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleWebcamMode();
+    });
+  }
   elements.btnWebcamFlip.addEventListener("click", flipWebcam);
   elements.btnWebcamClose.addEventListener("click", closeWebcam);
   elements.webcamOpacity.addEventListener("input", (e) => {
-    elements.webcamContainer.style.opacity = e.target.value / 100;
+    const val = e.target.value / 100;
+    document.documentElement.style.setProperty("--webcam-opacity", val);
+    if (elements.webcamVideo) elements.webcamVideo.style.opacity = val;
+  });
+
+  // Script Text Color Listeners
+  if (elements.btnTextColorMenu) {
+    elements.btnTextColorMenu.addEventListener("click", toggleColorDropdown);
+  }
+  document.addEventListener("click", (e) => {
+    if (elements.textColorControlWrap && !elements.textColorControlWrap.contains(e.target)) {
+      closeColorDropdown();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    const swatch = e.target.closest(".swatch-btn");
+    if (swatch && swatch.dataset.color) {
+      setScriptTextColor(swatch.dataset.color);
+      closeColorDropdown();
+    }
+  });
+  if (elements.inputCustomColor) {
+    elements.inputCustomColor.addEventListener("input", (e) => setScriptTextColor(e.target.value));
+  }
+  if (elements.inputCustomColorMobile) {
+    elements.inputCustomColorMobile.addEventListener("input", (e) => setScriptTextColor(e.target.value));
+  }
+
+  // Handle responsive resize for camera
+  window.addEventListener("resize", () => {
+    if (state.webcamActive && window.innerWidth <= 768 && state.webcamMode !== "background") {
+      setWebcamMode("background");
+    }
   });
 
   // Webcam Recording
@@ -1854,6 +2012,8 @@ function setupDragAndDrop() {
 
   // Mouse drag (desktop)
   header.addEventListener("mousedown", (e) => {
+    if (state.webcamMode === "background") return;
+    if (e.target.closest("button") || e.target.closest("input")) return;
     isDragging = true;
     offsetX = e.clientX - container.offsetLeft;
     offsetY = e.clientY - container.offsetTop;
@@ -1861,7 +2021,7 @@ function setupDragAndDrop() {
   });
 
   window.addEventListener("mousemove", (e) => {
-    if (!isDragging) return;
+    if (!isDragging || state.webcamMode === "background") return;
     container.style.left = `${Math.max(10, e.clientX - offsetX)}px`;
     container.style.top = `${Math.max(10, e.clientY - offsetY)}px`;
     container.style.right = "auto";
@@ -1874,6 +2034,8 @@ function setupDragAndDrop() {
 
   // Touch drag (mobile)
   header.addEventListener("touchstart", (e) => {
+    if (state.webcamMode === "background") return;
+    if (e.target.closest("button") || e.target.closest("input")) return;
     const touch = e.touches[0];
     isDragging = true;
     offsetX = touch.clientX - container.offsetLeft;
@@ -1881,7 +2043,7 @@ function setupDragAndDrop() {
   }, { passive: true });
 
   window.addEventListener("touchmove", (e) => {
-    if (!isDragging) return;
+    if (!isDragging || state.webcamMode === "background") return;
     const touch = e.touches[0];
     container.style.left = `${Math.max(4, touch.clientX - offsetX)}px`;
     container.style.top = `${Math.max(4, touch.clientY - offsetY)}px`;

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PromptFlow AI • Studio Teleprompter</title>
+  <title>joseph-speech</title>
   <meta name="description" content="Professional web-based teleprompter with AI script generation, voice-follow scrolling, webcam overlay, and mirror reflection.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,7 +21,7 @@
         </svg>
       </div>
       <div class="brand-text">
-        <span class="brand-title">PromptFlow</span>
+        <span class="brand-title">JosephSpch</span>
       </div>
     </div>
 
@@ -104,6 +104,58 @@
 
     <!-- 1. PROMPTER STUDIO STAGE -->
     <section class="prompter-stage" id="prompterStage">
+      <!-- Dedicated Video Background Layer (Behind prompter text, z-index: 1) -->
+      <div class="webcam-backdrop" id="webcamBackdrop">
+        <!-- Video moved here in Background Mode -->
+        <div class="webcam-scrim" id="webcamScrim"></div>
+      </div>
+
+      <!-- Webcam Eye-Contact & Floating Controls Studio (z-index: 85) -->
+      <div class="webcam-pip-container" id="webcamContainer">
+        <div class="webcam-header" id="webcamHeader">
+          <div class="webcam-title-group">
+            <span class="webcam-title">Eye-Contact Cam</span>
+            <button class="btn-webcam-mode" id="btnWebcamMode" title="Switch between Background Camera and Floating Window">
+              <span class="mode-icon" id="webcamModeIcon">⛶</span>
+              <span class="mode-text" id="webcamModeText">BG Mode</span>
+            </button>
+          </div>
+          <div class="webcam-controls">
+            <!-- Record / Stop Recording Button -->
+            <button class="icon-tiny btn-rec" id="btnWebcamRecord" title="Start Recording">⏺</button>
+            <div class="rec-indicator" id="recIndicator">
+              <span class="rec-dot"></span>
+              <span class="rec-timer" id="recTimer">00:00</span>
+            </div>
+            <button class="icon-tiny" id="btnWebcamFlip" title="Flip Camera Mirror">⇆</button>
+            <button class="icon-tiny" id="btnWebcamClose" title="Close Camera">✕</button>
+          </div>
+        </div>
+
+        <div class="webcam-video-wrap" id="webcamVideoWrap">
+          <video id="webcamVideo" autoplay playsinline muted></video>
+          <div class="eye-contact-marker" id="eyeContactMarker" title="Look directly into the lens here!">
+            <div class="target-cross"></div>
+          </div>
+        </div>
+
+        <div class="webcam-footer" id="webcamFooter">
+          <div class="webcam-opacity-wrap">
+            <label for="webcamOpacity">Opacity:</label>
+            <input type="range" id="webcamOpacity" min="20" max="100" value="85" title="Camera Opacity / Visibility">
+          </div>
+          <!-- Download last recording -->
+          <button class="btn-download-rec hidden" id="btnDownloadRec" title="Download Last Recording">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Save</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Reading Guide Focus Line -->
       <div class="reading-guide" id="readingGuide">
         <div class="guide-arrow guide-left">▶</div>
@@ -204,42 +256,6 @@ Tip: Format with cues like [PAUSE 2s] or [EMPHASIZE] to guide your pacing on sta
       </div>
     </section>
 
-    <!-- 3. WEBCAM EYE-CONTACT OVERLAY -->
-    <div class="webcam-pip-container" id="webcamContainer">
-      <div class="webcam-header" id="webcamHeader">
-        <span class="webcam-title">Eye-Contact Cam</span>
-        <div class="webcam-controls">
-          <!-- Record / Stop Recording Button -->
-          <button class="icon-tiny btn-rec" id="btnWebcamRecord" title="Start Recording">⏺</button>
-          <button class="icon-tiny" id="btnWebcamFlip" title="Flip Camera Mirror">⇆</button>
-          <button class="icon-tiny" id="btnWebcamClose" title="Close Camera">✕</button>
-        </div>
-      </div>
-      <div class="webcam-video-wrap">
-        <video id="webcamVideo" autoplay playsinline muted></video>
-        <div class="eye-contact-marker" title="Look directly into the lens here!">
-          <div class="target-cross"></div>
-        </div>
-        <!-- Recording indicator -->
-        <div class="rec-indicator" id="recIndicator">
-          <span class="rec-dot"></span>
-          <span class="rec-timer" id="recTimer">00:00</span>
-        </div>
-      </div>
-      <div class="webcam-footer">
-        <label>Opacity:</label>
-        <input type="range" id="webcamOpacity" min="20" max="100" value="85">
-        <!-- Download last recording -->
-        <button class="btn-download-rec hidden" id="btnDownloadRec" title="Download Last Recording">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-        </button>
-      </div>
-    </div>
-
   </main>
 
   <!-- ================= FLOATING PROMPTER CONTROLLER (HUD) ================= -->
@@ -310,12 +326,35 @@ Tip: Format with cues like [PAUSE 2s] or [EMPHASIZE] to guide your pacing on sta
         </div>
       </div>
 
-      <!-- Right Controls: Guide, Theme, Fullscreen -->
+      <!-- Right Controls: Guide, Text Color, Theme, Fullscreen -->
       <div class="hud-group hud-toggles">
         <!-- Reading Guide Toggle -->
         <button class="btn-toggle-hud active" id="btnToggleGuide" title="Toggle Reading Focus Line">
           <span class="icon-label">Guide</span>
         </button>
+
+        <!-- Script Text Color Picker Dropdown -->
+        <div class="text-color-control-wrap" id="textColorControlWrap" title="Script Text Color">
+          <button class="btn-toggle-hud btn-color-dropdown-trigger" id="btnTextColorMenu" title="Change Script Text Color">
+            <span class="color-dot-indicator" id="textColorDot"></span>
+            <span class="icon-label">Color</span>
+          </button>
+          <div class="color-dropdown-menu hidden" id="colorDropdownMenu">
+            <div class="color-menu-header">Script Text Color</div>
+            <div class="color-swatches-grid">
+              <button class="swatch-btn active" data-color="#ffffff" style="--swatch-color:#ffffff;" title="White (Default)"></button>
+              <button class="swatch-btn" data-color="#ffe600" style="--swatch-color:#ffe600;" title="Studio Yellow (High Contrast over Video)"></button>
+              <button class="swatch-btn" data-color="#38bdf8" style="--swatch-color:#38bdf8;" title="Electric Sky Cyan"></button>
+              <button class="swatch-btn" data-color="#4ade80" style="--swatch-color:#4ade80;" title="Neon Spring Green"></button>
+              <button class="swatch-btn" data-color="#fb923c" style="--swatch-color:#fb923c;" title="Coral Amber"></button>
+              <button class="swatch-btn" data-color="#f43f5e" style="--swatch-color:#f43f5e;" title="Vivid Rose"></button>
+              <label class="swatch-custom-label" title="Custom Color Palette">
+                <input type="color" id="inputCustomColor" value="#ffffff">
+                <span class="swatch-custom-icon">🎨</span>
+              </label>
+            </div>
+          </div>
+        </div>
 
         <!-- Theme Picker Dropdown -->
         <div class="theme-select-wrap">
@@ -363,6 +402,22 @@ Tip: Format with cues like [PAUSE 2s] or [EMPHASIZE] to guide your pacing on sta
           <div class="popup-slider-wrap">
             <input type="range" id="sliderGuidePosMobile" min="15" max="60" value="30">
             <span class="slider-val" id="guidePosValMobile">30%</span>
+          </div>
+        </div>
+        <!-- Script Text Color Mobile Row -->
+        <div class="hud-popup-row">
+          <span class="popup-label">Text Color</span>
+          <div class="color-swatches-grid mobile-swatches" id="mobileColorSwatches">
+            <button class="swatch-btn active" data-color="#ffffff" style="--swatch-color:#ffffff;" title="White (Default)"></button>
+            <button class="swatch-btn" data-color="#ffe600" style="--swatch-color:#ffe600;" title="Studio Yellow (High Contrast)"></button>
+            <button class="swatch-btn" data-color="#38bdf8" style="--swatch-color:#38bdf8;" title="Electric Cyan"></button>
+            <button class="swatch-btn" data-color="#4ade80" style="--swatch-color:#4ade80;" title="Neon Green"></button>
+            <button class="swatch-btn" data-color="#fb923c" style="--swatch-color:#fb923c;" title="Coral Amber"></button>
+            <button class="swatch-btn" data-color="#f43f5e" style="--swatch-color:#f43f5e;" title="Vivid Rose"></button>
+            <label class="swatch-custom-label" title="Custom Color Palette">
+              <input type="color" id="inputCustomColorMobile" value="#ffffff">
+              <span class="swatch-custom-icon">🎨</span>
+            </label>
           </div>
         </div>
         <div class="hud-popup-row hud-popup-actions">
