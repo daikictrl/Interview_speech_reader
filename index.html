@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PromptFlow AI • Studio Teleprompter</title>
+  <meta name="description" content="Professional web-based teleprompter with AI script generation, voice-follow scrolling, webcam overlay, and mirror reflection.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-oled">
+
+  <!-- ================= TOP NAVIGATION / STUDIO BAR ================= -->
+  <header class="studio-header" id="studioHeader">
+    <div class="brand">
+      <div class="logo-mark">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">PromptFlow</span>
+      </div>
+    </div>
+
+    <!-- Hamburger Menu Toggle (Mobile Only) -->
+    <button class="btn-hamburger" id="btnHamburger" title="Menu" aria-label="Menu">
+      <span class="hamburger-bar"></span>
+      <span class="hamburger-bar"></span>
+      <span class="hamburger-bar"></span>
+    </button>
+
+    <!-- Minimal Timer, Progress & Mic Audio Track -->
+    <div class="script-meta-bar" id="scriptMetaBar">
+      <div class="meta-item meta-clickable" id="metaElapsedItem" title="Elapsed Time (Click to Play/Pause, click ↺ to Reset)">
+        <span class="meta-label">ELAPSED</span>
+        <span class="meta-val timer-val" id="statElapsed">00:00</span>
+        <button class="btn-timer-reset" id="btnResetTimer" title="Reset Elapsed Time">↺</button>
+      </div>
+
+      <div class="meta-divider"></div>
+
+      <div class="meta-item">
+        <span class="meta-label">PROGRESS</span>
+        <span class="meta-val" id="statProgress">0%</span>
+      </div>
+    </div>
+
+    <!-- Mode Switcher & Global Actions (Desktop visible, Mobile in drawer) -->
+    <div class="header-actions" id="headerActions">
+      <!-- Voice Follow Toggle -->
+      <button class="btn btn-subtle" id="btnVoiceFollow" title="Voice Follow (Teleprompter moves with your voice) [V]">
+        <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
+        </svg>
+        <span class="btn-text">Voice Follow</span>
+      </button>
+
+      <!-- Webcam Overlay Toggle -->
+      <button class="btn btn-subtle" id="btnWebcam" title="Toggle Camera Eye-Contact [C]">
+        <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 7l-7 5 7 5V7z"></path>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+        </svg>
+        <span class="btn-text">Camera</span>
+      </button>
+
+      <!-- AI Assistant Button -->
+      <button class="btn btn-subtle" id="btnOpenAI" title="AI Scriptwriter & Assistant">
+        <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"></path>
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+        </svg>
+        <span>AI Script</span>
+      </button>
+
+      <!-- Mode Toggle: Script Edit vs Prompter Studio -->
+      <div class="view-switch-pill">
+        <button class="pill-btn active" id="tabPrompter">Prompter</button>
+        <button class="pill-btn" id="tabEditor">Editor</button>
+      </div>
+
+      <!-- Settings / Help Button -->
+      <button class="btn btn-icon" id="btnHelp" title="Keyboard Shortcuts [?]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile Drawer Overlay -->
+    <div class="mobile-drawer-backdrop" id="mobileDrawerBackdrop"></div>
+  </header>
+
+  <!-- ================= MAIN WORKSPACE CONTAINER ================= -->
+  <main class="workspace-container">
+
+    <!-- 1. PROMPTER STUDIO STAGE -->
+    <section class="prompter-stage" id="prompterStage">
+      <!-- Reading Guide Focus Line -->
+      <div class="reading-guide" id="readingGuide">
+        <div class="guide-arrow guide-left">▶</div>
+        <div class="guide-beam"></div>
+        <div class="guide-arrow guide-right">◀</div>
+      </div>
+
+      <!-- Scrolling Viewport -->
+      <div class="prompter-viewport" id="prompterViewport">
+        <!-- Inner scroll content that can be flipped/mirrored -->
+        <div class="prompter-content-box" id="prompterContentBox">
+          <div class="prompter-lead-pad" id="leadPad"></div>
+          <div class="prompter-text" id="prompterTextDisplay">
+            <!-- Dynamic Teleprompter Text Rendered Here -->
+          </div>
+          <div class="prompter-tail-pad" id="tailPad"></div>
+        </div>
+      </div>
+
+      <!-- Countdown Overlay -->
+      <div class="countdown-overlay" id="countdownOverlay">
+        <div class="countdown-circle">
+          <span class="countdown-number" id="countdownNumber">3</span>
+        </div>
+        <div class="countdown-hint">Get Ready...</div>
+      </div>
+
+      <!-- Mini Real-time Voice Waveform Soundtrack (Right Margin) -->
+      <aside class="soundtrack-panel" id="soundtrackPanel" title="Microphone Voice Wave (Click to Test Mic)">
+        <span class="soundtrack-dot" id="soundtrackDot" title="Mic Status"></span>
+        <div class="soundtrack-canvas-container">
+          <canvas id="soundTrackCanvas" width="22" height="64"></canvas>
+        </div>
+      </aside>
+
+      <!-- Voice Follow Transcript HUD Badge -->
+      <div class="voice-hud" id="voiceHud">
+        <span class="hud-mic-icon">🎙️</span>
+        <span class="hud-text" id="voiceHudText">Listening for your voice...</span>
+      </div>
+    </section>
+
+    <!-- 2. SCRIPT EDITOR VIEW (Overlay/Tab) -->
+    <section class="editor-stage" id="editorStage">
+      <div class="editor-header">
+        <div class="editor-title-row">
+          <h2>Script Library & Editor</h2>
+          <div class="sample-scripts-dropdown">
+            <label for="sampleScriptSelect">Templates:</label>
+            <select id="sampleScriptSelect" class="custom-select">
+              <option value="" disabled selected>Load a sample script...</option>
+              <option value="keynote">Steve Jobs Style Product Launch</option>
+              <option value="youtube">High-Retention Tech Review</option>
+              <option value="ted">Inspiring TED-Talk Opening</option>
+              <option value="pitch">60-Second Investor Elevator Pitch</option>
+              <option value="news">Broadcast Anchor News Segment</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="editor-toolbar">
+          <button class="btn btn-sm btn-glass" id="btnUploadScript" title="Import Text or Markdown File">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Import File
+          </button>
+          <input type="file" id="fileInput" accept=".txt,.md" style="display:none;">
+
+          <button class="btn btn-sm btn-glass" id="btnExportScript" title="Download Script as Text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Export
+          </button>
+
+          <button class="btn btn-sm btn-glass" id="btnClearScript">Clear</button>
+
+          <div class="editor-toolbar-spacer"></div>
+
+          <button class="btn btn-sm btn-primary" id="btnLaunchPrompter">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Launch in Prompter
+          </button>
+        </div>
+      </div>
+
+      <div class="editor-body">
+        <textarea id="scriptEditor" placeholder="Paste or type your script here... Or use the AI Writer to generate a professional speech!
+
+Tip: Format with cues like [PAUSE 2s] or [EMPHASIZE] to guide your pacing on stage."></textarea>
+      </div>
+    </section>
+
+    <!-- 3. WEBCAM EYE-CONTACT OVERLAY -->
+    <div class="webcam-pip-container" id="webcamContainer">
+      <div class="webcam-header" id="webcamHeader">
+        <span class="webcam-title">Eye-Contact Cam</span>
+        <div class="webcam-controls">
+          <!-- Record / Stop Recording Button -->
+          <button class="icon-tiny btn-rec" id="btnWebcamRecord" title="Start Recording">⏺</button>
+          <button class="icon-tiny" id="btnWebcamFlip" title="Flip Camera Mirror">⇆</button>
+          <button class="icon-tiny" id="btnWebcamClose" title="Close Camera">✕</button>
+        </div>
+      </div>
+      <div class="webcam-video-wrap">
+        <video id="webcamVideo" autoplay playsinline muted></video>
+        <div class="eye-contact-marker" title="Look directly into the lens here!">
+          <div class="target-cross"></div>
+        </div>
+        <!-- Recording indicator -->
+        <div class="rec-indicator" id="recIndicator">
+          <span class="rec-dot"></span>
+          <span class="rec-timer" id="recTimer">00:00</span>
+        </div>
+      </div>
+      <div class="webcam-footer">
+        <label>Opacity:</label>
+        <input type="range" id="webcamOpacity" min="20" max="100" value="85">
+        <!-- Download last recording -->
+        <button class="btn-download-rec hidden" id="btnDownloadRec" title="Download Last Recording">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ================= FLOATING PROMPTER CONTROLLER (HUD) ================= -->
+  <footer class="prompter-hud" id="prompterHud">
+    <!-- Progress Bar -->
+    <div class="prompter-progress-track" id="progressTrack">
+      <div class="prompter-progress-fill" id="progressFill"></div>
+    </div>
+
+    <div class="hud-inner">
+      <!-- Left Controls: Play / Pause, Restart, Countdown -->
+      <div class="hud-group hud-playback">
+        <button class="btn-hud-control btn-hud-rewind" id="btnRewind" title="Rewind to Top [R]">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 19 2 12 11 5 11 19"></polygon>
+            <polygon points="22 19 13 12 22 5 22 19"></polygon>
+          </svg>
+        </button>
+
+        <button class="btn-hud-control btn-hud-play" id="btnPlayPause" title="Play / Pause [Space]">
+          <svg class="play-icon" id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <svg class="pause-icon hidden" id="pauseIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+          </svg>
+        </button>
+
+        <!-- Speed Adjustment -->
+        <div class="hud-speed-control">
+          <button class="btn-step" id="btnSpeedDown" title="Decrease Speed [Down Arrow]">−</button>
+          <div class="speed-display">
+            <span class="speed-val" id="speedVal">35</span>
+            <span class="speed-unit">WPM</span>
+          </div>
+          <button class="btn-step" id="btnSpeedUp" title="Increase Speed [Up Arrow]">+</button>
+        </div>
+      </div>
+
+      <!-- Center Controls: Sliders for Font Size, Text Width, Guide Position -->
+      <div class="hud-group hud-sliders">
+        <!-- Font Size Slider -->
+        <div class="hud-slider-item" title="Font Size [ or ]">
+          <span class="slider-icon">Aa</span>
+          <input type="range" id="sliderFontSize" min="24" max="96" value="56">
+          <span class="slider-val" id="fontSizeVal">56px</span>
+        </div>
+
+        <!-- Margin / Column Width Slider -->
+        <div class="hud-slider-item" title="Text Column Width">
+          <svg class="slider-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 4H3M21 20H3M17 12H7M7 8l-4 4 4 4M17 8l4 4-4 4"/>
+          </svg>
+          <input type="range" id="sliderWidth" min="40" max="95" value="70">
+          <span class="slider-val" id="widthVal">70%</span>
+        </div>
+
+        <!-- Reading Guide Height Slider -->
+        <div class="hud-slider-item" title="Reading Guide Sweet-Spot Position">
+          <svg class="slider-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="4" y1="12" x2="20" y2="12"></line>
+            <polyline points="8 8 12 4 16 8"></polyline>
+            <polyline points="8 16 12 20 16 16"></polyline>
+          </svg>
+          <input type="range" id="sliderGuidePos" min="15" max="60" value="30">
+          <span class="slider-val" id="guidePosVal">30%</span>
+        </div>
+      </div>
+
+      <!-- Right Controls: Guide, Theme, Fullscreen -->
+      <div class="hud-group hud-toggles">
+        <!-- Reading Guide Toggle -->
+        <button class="btn-toggle-hud active" id="btnToggleGuide" title="Toggle Reading Focus Line">
+          <span class="icon-label">Guide</span>
+        </button>
+
+        <!-- Theme Picker Dropdown -->
+        <div class="theme-select-wrap">
+          <select id="themeSelect" class="custom-select-small" title="Color Theme">
+            <option value="theme-oled" selected>Dark</option>
+            <option value="theme-studio">Slate</option>
+            <option value="theme-paper">Warm</option>
+          </select>
+        </div>
+
+        <!-- Fullscreen Button -->
+        <button class="btn-hud-control" id="btnFullscreen" title="Toggle Fullscreen [F]">
+          <svg id="fullscreenIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Mobile Settings Dropdown Toggle -->
+      <button class="btn-hud-settings-toggle" id="btnHudSettings" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+
+      <!-- Mobile Settings Popup Panel -->
+      <div class="hud-settings-popup" id="hudSettingsPopup">
+        <div class="hud-popup-row">
+          <span class="popup-label">Font Size</span>
+          <div class="popup-slider-wrap">
+            <input type="range" id="sliderFontSizeMobile" min="24" max="96" value="56">
+            <span class="slider-val" id="fontSizeValMobile">56px</span>
+          </div>
+        </div>
+        <div class="hud-popup-row">
+          <span class="popup-label">Text Width</span>
+          <div class="popup-slider-wrap">
+            <input type="range" id="sliderWidthMobile" min="40" max="95" value="70">
+            <span class="slider-val" id="widthValMobile">70%</span>
+          </div>
+        </div>
+        <div class="hud-popup-row">
+          <span class="popup-label">Guide Pos</span>
+          <div class="popup-slider-wrap">
+            <input type="range" id="sliderGuidePosMobile" min="15" max="60" value="30">
+            <span class="slider-val" id="guidePosValMobile">30%</span>
+          </div>
+        </div>
+        <div class="hud-popup-row hud-popup-actions">
+          <button class="btn-toggle-hud active" id="btnToggleGuideMobile" title="Toggle Guide"><span class="icon-label">Guide</span></button>
+          <select id="themeSelectMobile" class="custom-select-small" title="Theme">
+            <option value="theme-oled" selected>Dark</option>
+            <option value="theme-studio">Slate</option>
+            <option value="theme-paper">Warm</option>
+          </select>
+          <button class="btn-hud-control" id="btnFullscreenMobile" title="Fullscreen">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ================= AI ASSISTANT MODAL ================= -->
+  <div class="modal-backdrop" id="aiModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h3>AI Script Assistant</h3>
+        </div>
+        <button class="modal-close" id="btnCloseAIModal">&times;</button>
+      </div>
+
+      <!-- AI Tabs -->
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" id="tabAIGenerate">Generate New Script</button>
+        <button class="modal-tab-btn" id="tabAIEnhance">Polish Current Script</button>
+      </div>
+
+      <!-- Tab 1: Generate Script -->
+      <div class="modal-tab-pane active" id="paneAIGenerate">
+        <div class="form-group">
+          <label for="aiTopic">What is your topic or speech about?</label>
+          <input type="text" id="aiTopic" placeholder="e.g., Launching a revolutionary AI coding tool to 1,000 developers" class="form-input">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="aiFormat">Format</label>
+            <select id="aiFormat" class="form-select">
+              <option value="Keynote Speech">Keynote Speech</option>
+              <option value="YouTube Video Script">YouTube Video Script</option>
+              <option value="TikTok / Reel Hook">Shorts / TikTok Video</option>
+              <option value="Investor Pitch">Investor Elevator Pitch</option>
+              <option value="Educational Lecture">Lecture / Explainer</option>
+              <option value="Podcast Intro">Podcast Intro</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="aiTone">Tone</label>
+            <select id="aiTone" class="form-select">
+              <option value="Conversational & Friendly">Conversational & Engaging</option>
+              <option value="Inspiring & Visionary">Inspiring & Visionary</option>
+              <option value="Professional & Authoritative">Professional & Crisp</option>
+              <option value="High-Energy & Humorous">High-Energy & Humorous</option>
+              <option value="Calm & Reassuring">Calm & Reassuring</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="aiDuration">Target Length</label>
+            <select id="aiDuration" class="form-select">
+              <option value="30 seconds">30 Seconds (~65 words)</option>
+              <option value="60 seconds" selected>1 Minute (~130 words)</option>
+              <option value="2 minutes">2 Minutes (~260 words)</option>
+              <option value="3 minutes">3 Minutes (~400 words)</option>
+              <option value="5 minutes">5 Minutes (~650 words)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <span class="ai-model-tag" id="aiModelTag">Powered by AI API</span>
+          <button class="btn btn-primary" id="btnRunGenerate">
+            <span class="btn-text">Generate Teleprompter Script</span>
+            <div class="spinner hidden" id="generateSpinner"></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 2: Enhance Current Script -->
+      <div class="modal-tab-pane" id="paneAIEnhance">
+        <p class="helper-text">Transform your existing text in the editor into spoken-word gold with pauses, emphasis, and teleprompter-friendly cadence.</p>
+
+        <div class="enhance-options-grid">
+          <div class="enhance-card selected" data-mode="teleprompter_polish">
+            <div class="enhance-card-title">🚀 Teleprompter Flow</div>
+            <div class="enhance-card-desc">Breaks long run-on sentences into natural breath chunks & emphasizes punchy words.</div>
+          </div>
+
+          <div class="enhance-card" data-mode="add_pauses">
+            <div class="enhance-card-title">⏱️ Add Pacing Pauses</div>
+            <div class="enhance-card-desc">Inserts dramatic cues like [PAUSE 1s] and [PAUSE 2s] to prevent speaking too fast.</div>
+          </div>
+
+          <div class="enhance-card" data-mode="simplify">
+            <div class="enhance-card-title">🗣️ Conversational Polish</div>
+            <div class="enhance-card-desc">Converts academic or stiff jargon into natural words that roll effortlessly off the tongue.</div>
+          </div>
+
+          <div class="enhance-card" data-mode="bullet_cues">
+            <div class="enhance-card-title">🎯 Keynote Speaker Bullets</div>
+            <div class="enhance-card-desc">Turns the script into quick glanceable cues for confident unscripted speaking.</div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <span class="ai-model-tag">AI Script Coach</span>
+          <button class="btn btn-primary" id="btnRunEnhance">
+            <span class="btn-text">Enhance Editor Script</span>
+            <div class="spinner hidden" id="enhanceSpinner"></div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SHORTCUTS / HELP MODAL ================= -->
+  <div class="modal-backdrop" id="helpModal">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3>Keyboard & Remote Shortcuts</h3>
+        <button class="modal-close" id="btnCloseHelpModal">&times;</button>
+      </div>
+      <div class="shortcuts-grid">
+        <div class="shortcut-row"><kbd>Space</kbd> <span>Start / Pause Scrolling</span></div>
+        <div class="shortcut-row"><kbd>↑</kbd> / <kbd>↓</kbd> <span>Speed Up / Slow Down</span></div>
+        <div class="shortcut-row"><kbd>R</kbd> <span>Rewind to Start</span></div>
+        <div class="shortcut-row"><kbd>[</kbd> / <kbd>]</kbd> <span>Decrease / Increase Font Size</span></div>
+        <div class="shortcut-row"><kbd>F</kbd> <span>Toggle Fullscreen</span></div>
+        <div class="shortcut-row"><kbd>V</kbd> <span>Toggle Voice Follow</span></div>
+        <div class="shortcut-row"><kbd>C</kbd> <span>Toggle Camera Overlay</span></div>
+        <div class="shortcut-row"><kbd>Esc</kbd> <span>Exit Fullscreen / Close Modals</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MICROPHONE TROUBLESHOOTING MODAL ================= -->
+  <div class="modal-backdrop" id="micTroubleshootModal">
+    <div class="modal-dialog modal-dialog-md">
+      <div class="modal-header">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:1.3rem;">🎙️</span>
+          <h3>Microphone Access Required</h3>
+        </div>
+        <button class="modal-close" id="btnCloseMicModal">&times;</button>
+      </div>
+      <div style="padding: 20px;">
+        <div class="alert-banner-warning" id="micErrorNotice" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:12px;margin-bottom:16px;color:#fca5a5;font-size:0.86rem;line-height:1.45;">
+          <strong>Windows is blocking microphone hardware:</strong> While your browser shows a mic icon, Windows Privacy Settings has blocked desktop applications from accessing the audio device.
+        </div>
+
+        <p style="font-size:0.88rem;color:var(--text-main);margin-bottom:14px;font-weight:500;">
+          To enable live voice tracking and real-time scrolling:
+        </p>
+
+        <ol style="font-size:0.84rem;color:var(--text-muted);line-height:1.65;padding-left:20px;margin-bottom:18px;">
+          <li>Press <kbd>Win</kbd> + <kbd>I</kbd> to open <strong>Windows Settings</strong>.</li>
+          <li>Go to <strong>Privacy &amp; Security</strong> &rarr; <strong>Microphone</strong>.</li>
+          <li>Turn <strong>ON</strong> the main toggle: <strong>"Microphone access"</strong>.</li>
+          <li>Scroll down and turn <strong>ON</strong>: <strong>"Let desktop apps access your microphone"</strong> (or Google Chrome / Edge).</li>
+          <li>In your browser address bar next to <code style="color:#22c55e;">http://localhost:8080</code>, click the tune/padlock icon and confirm <strong>Microphone</strong> is set to <strong>Allow</strong>.</li>
+        </ol>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-color);">
+          <button class="btn btn-subtle" id="btnTestSimulatedVoice" title="Simulate voice follow to test teleprompter movement">
+            <span>▶ Test with Demo Voice</span>
+          </button>
+          <button class="btn btn-primary" id="btnRetryMicPermission">
+            <span>🔄 Retry Microphone</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
