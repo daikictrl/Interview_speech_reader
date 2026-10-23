@@ -125,6 +125,8 @@ const state = {
   videoRecordingActive: false,
   videoChunks: [],
   lastVideoBlob: null,
+  lastVideoMime: "video/mp4",
+  lastVideoExt: "mp4",
   recTimerInterval: null,
   recStartTime: null,
 
@@ -1283,19 +1285,41 @@ function toggleVideoRecording() {
   }
 }
 
+function getBestVideoMimeType() {
+  const preferred = [
+    // Prioritize MP4 with H.264 video and AAC audio for universal compatibility
+    "video/mp4;codecs=avc1,mp4a.40.2",
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    "video/mp4;codecs=avc1",
+    "video/mp4;codecs=h264,aac",
+    "video/mp4",
+    // Fallback if browser doesn't support MP4 recording (e.g. Firefox)
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm"
+  ];
+
+  if (typeof MediaRecorder === "undefined") return "";
+  for (const mime of preferred) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      return mime;
+    }
+  }
+  return "";
+}
+
 function startVideoRecording() {
   if (!state.webcamStream || !state.webcamActive) return;
 
   try {
     state.videoChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-      ? "video/webm;codecs=vp9,opus"
-      : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-        ? "video/webm;codecs=vp8,opus"
-        : "video/webm";
+    const mimeType = getBestVideoMimeType();
+    const options = mimeType ? { mimeType } : {};
 
-    const recorder = new MediaRecorder(state.webcamStream, { mimeType });
+    const recorder = new MediaRecorder(state.webcamStream, options);
     state.videoRecorder = recorder;
+    state.lastVideoMime = recorder.mimeType || mimeType || "video/mp4";
+    state.lastVideoExt = state.lastVideoMime.toLowerCase().includes("mp4") ? "mp4" : "webm";
 
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
@@ -1304,10 +1328,14 @@ function startVideoRecording() {
     };
 
     recorder.onstop = () => {
-      const blob = new Blob(state.videoChunks, { type: mimeType });
+      const finalMime = state.lastVideoMime || "video/mp4";
+      const blob = new Blob(state.videoChunks, { type: finalMime });
       state.lastVideoBlob = blob;
       state.videoChunks = [];
-      if (elements.btnDownloadRec) elements.btnDownloadRec.classList.remove("hidden");
+      if (elements.btnDownloadRec) {
+        elements.btnDownloadRec.classList.remove("hidden");
+        elements.btnDownloadRec.title = `Download Last Recording (.${state.lastVideoExt.toUpperCase()})`;
+      }
     };
 
     recorder.start(1000); // Collect data every second
@@ -1362,8 +1390,9 @@ function downloadLastRecording() {
   const url = URL.createObjectURL(state.lastVideoBlob);
   const a = document.createElement("a");
   a.href = url;
+  const ext = state.lastVideoExt || (state.lastVideoBlob.type && state.lastVideoBlob.type.toLowerCase().includes("mp4") ? "mp4" : "webm");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  a.download = `promptflow_recording_${timestamp}.webm`;
+  a.download = `promptflow_recording_${timestamp}.${ext}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
@@ -1418,7 +1447,57 @@ function syncMobileSliders() {
   }
 }
 
-// ================= AI ASSISTANT API CALLS =================
+// ================= AI ASSISTANT API CALLS (HYBRID: SERVER + CLIENT FALLBACK) =================
+const FALLBACK_OPENROUTER_KEY = "";
+
+async function callClientAI(prompt, systemInstruction) {
+  const apiKey = localStorage.getItem("promptflow_ai_key") || FALLBACK_OPENROUTER_KEY;
+  const models = [
+    "openrouter/auto",
+    "nvidia/nemotron-3.5-lightning:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "google/gemini-2.0-flash-exp:free"
+  ];
+
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": window.location.origin || "https://joseph-speech.vercel.app",
+          "X-Title": "PromptFlow Teleprompter"
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        lastErr = new Error(`Model ${model} returned ${resp.status}: ${txt}`);
+        continue;
+      }
+      const data = await resp.json();
+      const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (content) return content.trim();
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+  }
+  throw lastErr || new Error("Unable to connect to AI models. Please verify your connection.");
+}
+
 async function requestAIGeneration() {
   const topic = elements.aiTopic.value.trim();
   if (!topic) {
@@ -1434,32 +1513,63 @@ async function requestAIGeneration() {
   elements.btnRunGenerate.disabled = true;
   elements.generateSpinner.classList.remove("hidden");
 
-  try {
-    const response = await fetch("/api/ai/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        topic: topic,
-        format: format,
-        tone: tone,
-        target_time: targetTime
-      })
-    });
+  const systemInstruction =
+    "You are an elite speechwriter for world-class speakers and content creators. " +
+    "Write spoken teleprompter scripts optimized for live reading. " +
+    "Use short, punchy sentences, natural breath marks, and bracketed stage cues like [PAUSE 1s], [SMILE], [EMPHASIZE]. " +
+    "Do NOT include markdown titles or extra chit-chat. Return ONLY the spoken teleprompter script.";
 
-    const data = await response.json();
-    if (data.success && data.script) {
-      state.script = data.script;
+  const targetWords = parseInt((targetTime || "60").split(" ")[0], 10) * 130 / 60 || 150;
+  const prompt =
+    `Write a ${format} about '${topic}'.\n` +
+    `Tone: ${tone}.\n` +
+    `Target duration: ${targetTime} (approx ${Math.round(targetWords)} words).\n` +
+    `Format it with clear paragraph breaks for effortless teleprompter scrolling.`;
+
+  try {
+    let script = null;
+
+    // 1. Try server or serverless endpoint first
+    try {
+      const response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: topic,
+          format: format,
+          tone: tone,
+          target_time: targetTime
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.script) {
+          script = data.script;
+        }
+      }
+    } catch (serverErr) {
+      console.log("Server API not reachable, falling back to direct AI client:", serverErr);
+    }
+
+    // 2. Direct client fallback if server endpoint was unavailable (e.g. on Vercel)
+    if (!script) {
+      script = await callClientAI(prompt, systemInstruction);
+    }
+
+    if (script) {
+      state.script = script;
       elements.scriptEditor.value = state.script;
       localStorage.setItem("promptflow_script", state.script);
       updatePrompterDisplay();
       closeAIModal();
       switchTab("prompter");
     } else {
-      alert("Notice: " + (data.error || "Could not generate script."));
+      alert("Notice: Could not generate script. Please try again.");
     }
   } catch (err) {
     console.error("AI Generate Error:", err);
-    alert("Error contacting local AI server. Please make sure server.py is running!");
+    alert("Notice: " + (err.message || "Could not generate script."));
   } finally {
     elements.btnRunGenerate.disabled = false;
     elements.generateSpinner.classList.add("hidden");
@@ -1479,30 +1589,65 @@ async function requestAIEnhance() {
   elements.btnRunEnhance.disabled = true;
   elements.enhanceSpinner.classList.remove("hidden");
 
-  try {
-    const response = await fetch("/api/ai/enhance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: currentText,
-        mode: mode
-      })
-    });
+  const systemInstruction =
+    "You are an expert teleprompter script editor. " +
+    "Your job is to transform raw written text into oral, spoken-word excellence for teleprompter delivery. " +
+    "Format with: short natural breath chunks, clear capitalization for emphasis, phonetic pronunciation in parentheses for difficult words, and cues like [PAUSE 2s]. " +
+    "Return ONLY the refined teleprompter script without meta commentary.";
 
-    const data = await response.json();
-    if (data.success && data.refined) {
-      state.script = data.refined;
+  let prompt = "";
+  if (mode === "add_pauses") {
+    prompt = `Add dramatic pauses [PAUSE 1s] or [PAUSE 2s] and emphasis to this script to make the delivery sound confident and natural:\n\n${currentText}`;
+  } else if (mode === "bullet_cues") {
+    prompt = `Condense this text into punchy speaking cues and bullet teleprompter notes for a keynote speaker:\n\n${currentText}`;
+  } else if (mode === "simplify") {
+    prompt = `Rewrite this text into simple, crystal-clear conversational language that rolls off the tongue without stuttering:\n\n${currentText}`;
+  } else {
+    prompt = `Optimize this text specifically for a teleprompter. Break long sentences into short breath units, emphasize key takeaway words, and format for effortless reading:\n\n${currentText}`;
+  }
+
+  try {
+    let refined = null;
+
+    // 1. Try server or serverless endpoint first
+    try {
+      const response = await fetch("/api/ai/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: currentText,
+          mode: mode
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.refined) {
+          refined = data.refined;
+        }
+      }
+    } catch (serverErr) {
+      console.log("Server API not reachable, falling back to direct AI client:", serverErr);
+    }
+
+    // 2. Direct client fallback if server endpoint was unavailable (e.g. on Vercel)
+    if (!refined) {
+      refined = await callClientAI(prompt, systemInstruction);
+    }
+
+    if (refined) {
+      state.script = refined;
       elements.scriptEditor.value = state.script;
       localStorage.setItem("promptflow_script", state.script);
       updatePrompterDisplay();
       closeAIModal();
       switchTab("prompter");
     } else {
-      alert("Notice: " + (data.error || "Could not refine script."));
+      alert("Notice: Could not refine script. Please try again.");
     }
   } catch (err) {
     console.error("AI Enhance Error:", err);
-    alert("Error contacting local AI server. Please make sure server.py is running!");
+    alert("Notice: " + (err.message || "Could not refine script."));
   } finally {
     elements.btnRunEnhance.disabled = false;
     elements.enhanceSpinner.classList.add("hidden");
